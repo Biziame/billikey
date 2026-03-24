@@ -26,7 +26,7 @@ COLOR_DIM = (80, 80, 80)
 COLOR_QR_FRONT = (0, 0, 0)
 COLOR_QR_BACK = (255, 255, 255)
 
-# ── UTILITY (identiche all'originale) ──────────────────────────
+# ── UTILITY ────────────────────────────────────────────────────
 
 @st.cache_resource
 def carica_dizionario():
@@ -70,7 +70,7 @@ def livello_sicurezza(entropia):
     if entropia >= 60:  return '🟡 BUONA'
     return '🔴 DEBOLE'
 
-# ── GENERA PASSPHRASE (adattata per web: niente print/input) ───
+# ── GENERA PASSPHRASE ──────────────────────────────────────────
 
 def genera_passphrase_web(dizionario, num_parole, separatore, aggiungi_numero, aggiungi_simbolo, maiuscola):
     SIMBOLI = ['!', '@', '#', '$', '%', '&', '*', '?', '+', '=']
@@ -93,7 +93,7 @@ def genera_passphrase_web(dizionario, num_parole, separatore, aggiungi_numero, a
         passphrase += separatore + str(secrets.randbelow(900) + 100)
     return passphrase, lanci
 
-# ── GENERA QR (adattato per web: restituisce bytes, non salva file) ──
+# ── GENERA QR ──────────────────────────────────────────────────
 
 def _get_font(size):
     candidates = [
@@ -158,43 +158,101 @@ st.caption('Diceware Italiano · Crittograficamente sicuro · v1.0')
 
 dizionario = carica_dizionario()
 
+# ── SIDEBAR con tooltip (parametro help=) ──────────────────────
 with st.sidebar:
     st.header('⚙️ Configurazione')
-    num_parole = st.slider('Numero di parole', 4, 8, 6)
-    separatore = st.selectbox('Separatore', ['-', ' ', '.', ''],
-        format_func=lambda x: {'': 'Nessuno', ' ': 'Spazio', '-': 'Trattino', '.': 'Punto'}.get(x, x))
-    maiuscola = st.toggle('Parola in maiuscolo', value=False)
-    simbolo = st.toggle('Aggiungi simbolo casuale', value=False)
-    numero = st.toggle('Aggiungi numero in fondo', value=False)
+
+    num_parole = st.slider(
+        'Numero di parole', 4, 8, 6,
+        help='Più parole = passphrase più sicura. 6 parole offrono ~77 bit di entropia, considerati molto sicuri.'
+    )
+    separatore = st.selectbox(
+        'Separatore', ['-', ' ', '.', ''],
+        format_func=lambda x: {'': 'Nessuno', ' ': 'Spazio', '-': 'Trattino', '.': 'Punto'}.get(x, x),
+        help='Carattere usato per unire le parole. Es. con trattino: "cane-casa-mare".'
+    )
+
+    # ▶ NUOVO: quante passphrase generare
+    quante = st.slider(
+        'Quante passphrase generare', 1, 10, 1,
+        help='Genera più passphrase in una volta sola e scegli quella che preferisci.'
+    )
+
+    maiuscola = st.toggle(
+        'Parola in maiuscolo', value=False,
+        help='Mette in maiuscolo la prima lettera di una parola casuale. Es. "cane-Casa-mare".'
+    )
+    simbolo = st.toggle(
+        'Aggiungi simbolo casuale', value=False,
+        help='Aggiunge un simbolo (!@#$%&*?+=) in fondo a una parola casuale. Aumenta la sicurezza contro alcuni attacchi.'
+    )
+    numero = st.toggle(
+        'Aggiungi numero in fondo', value=False,
+        help='Aggiunge un numero a 3 cifre (100-999) alla fine della passphrase. Utile per siti che richiedono numeri.'
+    )
+
     st.divider()
     entropia_preview = calcola_entropia(num_parole)
     st.caption(f'Entropia: **{entropia_preview:.1f} bit** — {livello_sicurezza(entropia_preview)}')
+    st.caption(f'Brute force: {tempo_bruteforce(entropia_preview)}')
 
+# ── GENERA ────────────────────────────────────────────────────
 if st.button('🎲 Genera Passphrase', type='primary', use_container_width=True):
-    pp, lanci = genera_passphrase_web(dizionario, num_parole, separatore, numero, simbolo, maiuscola)
-    st.session_state['passphrase'] = pp
-    st.session_state['lanci'] = lanci
+    risultati = []
+    for _ in range(quante):
+        pp, lanci = genera_passphrase_web(dizionario, num_parole, separatore, numero, simbolo, maiuscola)
+        risultati.append((pp, lanci))
+    st.session_state['risultati'] = risultati
     st.session_state['num_parole'] = num_parole
 
-if 'passphrase' in st.session_state:
-    pp = st.session_state['passphrase']
+# ── RISULTATI ─────────────────────────────────────────────────
+if 'risultati' in st.session_state:
+    risultati = st.session_state['risultati']
     entropia = calcola_entropia(st.session_state['num_parole'])
-    st.success(f'### `{pp}`')
-    col1, col2, col3 = st.columns(3)
-    col1.metric('Entropia', f'{entropia:.1f} bit')
-    col2.metric('Sicurezza', livello_sicurezza(entropia))
-    col3.metric('Brute force', tempo_bruteforce(entropia))
-    with st.expander('🎲 Dettaglio lanci dadi'):
-        for i, (codice, parola) in enumerate(st.session_state['lanci']):
-            st.write(f'Lancio {i+1}: `{codice}` → **{parola}**')
-    st.divider()
+    num_risultati = len(risultati)
+
+    for i, (pp, lanci) in enumerate(risultati):
+        if num_risultati > 1:
+            st.markdown(f'**Passphrase {i+1}**')
+
+        # ▶ st.code mostra la passphrase con il pulsante 📋 Copia integrato
+        st.code(pp, language=None)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric('Entropia', f'{entropia:.1f} bit')
+        col2.metric('Sicurezza', livello_sicurezza(entropia))
+        col3.metric('Brute force', tempo_bruteforce(entropia))
+
+        with st.expander(f'🎲 Dettaglio lanci dadi {"#"+str(i+1) if num_risultati > 1 else ""}'):
+            for j, (codice, parola) in enumerate(lanci):
+                st.write(f'Lancio {j+1}: `{codice}` → **{parola}**')
+
+        if num_risultati > 1:
+            st.divider()
+
+    # ── QR (solo se una passphrase, ha senso) ─────────────────
     st.subheader('📱 Genera QR Code')
+    if num_risultati > 1:
+        idx_qr = st.selectbox(
+            'Scegli quale passphrase usare per il QR',
+            options=list(range(1, num_risultati + 1)),
+            format_func=lambda x: f'Passphrase {x}'
+        ) - 1
+        pp_qr = risultati[idx_qr][0]
+    else:
+        pp_qr = risultati[0][0]
+
     servizio = st.text_input('Nome servizio (es. Gmail, Bitwarden)', value='billikey')
     if st.button('Genera QR', use_container_width=True):
-        qr_bytes = genera_qr_web(pp, servizio)
+        qr_bytes = genera_qr_web(pp_qr, servizio)
         if qr_bytes:
-            st.image(qr_bytes, caption=f'QR per: {servizio}')
+            col_qr, _ = st.columns([1, 1])
+            with col_qr:
+                st.image(qr_bytes, caption=f'QR per: {servizio}')
             st.download_button('⬇️ Scarica QR PNG', data=qr_bytes,
-                file_name=f'{servizio.lower().replace(" ","_")}_qr.png',
+                file_name=f'{servizio.lower().replace(" ", "_")}_qr.png',
                 mime='image/png', use_container_width=True)
+        else:
+            st.error('Dipendenze QR mancanti. Esegui: pip install qrcode[pil] Pillow')
+
     st.warning('⚠️ Salva questa passphrase adesso. Non viene memorizzata.')
